@@ -14,7 +14,7 @@ udp_ip = st.sidebar.text_input("UDP IP", "127.0.0.1")
 udp_port = st.sidebar.number_input("UDP Port", 12345)
 duration = st.sidebar.number_input("Recording Duration (seconds)", 5, 60, 10)
 save_path = st.sidebar.text_input("CSV Save Path", "eeg_dataset_udp_fixed.csv")
-sampling_rate = st.sidebar.number_input("Sampling Rate (Hz)", 100, 1000, 250)  # عادة 250 لـ Cyton
+sampling_rate = st.sidebar.number_input("Sampling Rate (Hz)", 100, 1000, 250)
 
 channel_names = ["FC3", "FC4", "C3", "C4", "CP3", "CP4", "FCz", "Pz"]
 
@@ -34,22 +34,18 @@ ch_df = pd.DataFrame({
 })
 st.table(ch_df)
 
-st.markdown("#### 🧩 Proper Electrode Placement (8-channel montage)")
 montage_img_path = "https://www.researchgate.net/publication/340680978/figure/fig4/AS:963526076137508@1606733926908/The-eight-channel-electrode-system-in-the-International-10-20-system-The-green-marked.png"
 st.image(
     montage_img_path,
-    caption="Highlighted: FC3, FC4, C3, C4, CP3, CP4, FCz, Pz (Standard 10-20 system)",
+    caption="Highlighted: FC3, FC4, C3, C4, CP3, CP4, FCz, Pz",
     width=500
 )
 
-st.markdown("### ✋ Choose Hand")
-hand = st.radio("Select Hand:", ["Left", "Right"], horizontal=True)
+st.markdown("### ✋ Choose Mode")
+hand = st.radio("Select Mode:", ["Left", "Right", "Idle"], horizontal=True)
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.markdown("### 👇 Imagine the Animation")
-    open_gif = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
-    close_gif = "https://media.tenor.com/UtL_5N-UBVoAAAAM/hand-close.gif"
     hand_gif = st.empty()
     status_placeholder = st.empty()
 
@@ -60,7 +56,7 @@ def receive_udp_json(ip, port, duration, ch_names, hand, sampling_rate=250):
 
     data_list = []
     start_time = time.time()
-    sample_interval = 1.0 / sampling_rate  
+    sample_interval = 1.0 / sampling_rate
 
     while time.time() - start_time < duration:
         try:
@@ -103,29 +99,37 @@ def receive_udp_json(ip, port, duration, ch_names, hand, sampling_rate=250):
     return pd.DataFrame(data_list, columns=cols)
 
 if st.button("🎬 Start Recording"):
-    st.success(f"Recording for {duration} seconds ({hand} hand)...")
+    st.success(f"Recording for {duration} seconds ({hand} mode)...")
 
-    half = duration / 2
-    hand_gif.image(open_gif, caption=f"{hand} hand - OPEN")
-    status_placeholder.info("🖐️ Hand Open - Keep it open!")
-    time.sleep(half)
+    idle_gif = "https://img.icons8.com/win10/512/FFFFFF/plus.png"
+    open_gif = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
+    close_gif = "https://media.tenor.com/UtL_5N-UBVoAAAAM/hand-close.gif"
 
-    hand_gif.image(close_gif, caption=f"{hand} hand - CLOSE")
-    status_placeholder.warning("✊ Hand Close - Keep it closed!")
-    time.sleep(half)
+    if hand == "Idle":
+        hand_gif.image(idle_gif, caption="Idle - Focus on the +")
+        status_placeholder.info("Focus on the +")
+        time.sleep(duration)
+    else:
+        half = duration / 2
+        hand_gif.image(open_gif, caption=f"{hand} hand - OPEN")
+        status_placeholder.info("Hand Open - Keep it open!")
+        time.sleep(half)
+        hand_gif.image(close_gif, caption=f"{hand} hand - CLOSE")
+        status_placeholder.warning("Hand Close - Keep it closed!")
+        time.sleep(half)
 
     st.write(f"📡 Listening on {udp_ip}:{udp_port} ...")
 
     df = receive_udp_json(udp_ip, udp_port, duration, channel_names, hand, sampling_rate)
 
     if df.empty:
-        st.error("❌ No JSON data received. Check your OpenBCI GUI UDP settings.")
+        st.error("❌ No JSON data received.")
     else:
         df.to_csv(save_path, mode='a', index=False, header=not pd.io.common.file_exists(save_path))
         actual_rate = df.shape[0] / duration
-        st.success(f"✅ Saved {df.shape[0]} samples to {save_path}")
-        st.info(f"⚡ Actual Sampling Rate ≈ {actual_rate:.2f} Hz")
+        st.success(f"Saved {df.shape[0]} samples to {save_path}")
+        st.info(f"Actual Sampling Rate ≈ {actual_rate:.2f} Hz")
         st.dataframe(df.head(10))
 
 st.markdown("---")
-st.caption("Developed by Aether ⚡ — Fixed UDP version with accurate timing & smooth UI.")
+st.caption("Developed by Aether ⚡")
