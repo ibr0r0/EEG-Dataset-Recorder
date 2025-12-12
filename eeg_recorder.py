@@ -1,135 +1,160 @@
 import streamlit as st
 import pandas as pd
-import socket
 import time
-import json
+import numpy as np
 from datetime import datetime
 
-st.set_page_config(page_title="EEG Hand Movement Recorder", page_icon="🧠", layout="centered")
-
-st.title("🧠 EEG Hand Movement Recorder")
-
-st.sidebar.header("🧩 Settings")
-udp_ip = st.sidebar.text_input("UDP IP", "127.0.0.1")
-udp_port = st.sidebar.number_input("UDP Port", 12345)
-duration = st.sidebar.number_input("Recording Duration (seconds)", 5, 60, 10)
-save_path = st.sidebar.text_input("CSV Save Path", "eeg_dataset_udp_fixed.csv")
-sampling_rate = st.sidebar.number_input("Sampling Rate (Hz)", 100, 1000, 250)
-
-channel_names = ["FC3", "FC4", "C3", "C4", "CP3", "CP4", "FCz", "Pz"]
-
-st.markdown("### 🧩 EEG Electrode Placement (8-channel Motor Cortex Montage)")
-ch_df = pd.DataFrame({
-    "Channel": channel_names,
-    "Description": [
-        "Frontal-Central Left (motor planning)",
-        "Frontal-Central Right (motor planning)",
-        "Central Left (motor execution - Left Hand)",
-        "Central Right (motor execution - Right Hand)",
-        "Centro-Parietal Left (somatosensory feedback)",
-        "Centro-Parietal Right (somatosensory feedback)",
-        "Fronto-Central Midline (motor control reference)",
-        "Parietal Midline (feedback/reference)"
-    ]
-})
-st.table(ch_df)
-
-montage_img_path = "https://www.researchgate.net/publication/340680978/figure/fig4/AS:963526076137508@1606733926908/The-eight-channel-electrode-system-in-the-International-10-20-system-The-green-marked.png"
-st.image(
-    montage_img_path,
-    caption="Highlighted: FC3, FC4, C3, C4, CP3, CP4, FCz, Pz",
-    width=500
+from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
+from brainflow.data_filter import (
+    DataFilter,
+    FilterTypes,
+    DetrendOperations,
+    NoiseTypes
 )
 
-st.markdown("### ✋ Choose Mode")
-hand = st.radio("Select Mode:", ["Left", "Right", "Idle"], horizontal=True)
+# ======================
+# Streamlit config
+# ======================
+st.set_page_config(page_title="EEG Recorder", page_icon="🧠")
+st.title("🧠 EEG Recorder – Session Mode")
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    hand_gif = st.empty()
-    status_placeholder = st.empty()
+# ======================
+# Session State
+# ======================
+if "recording" not in st.session_state:
+    st.session_state.recording = False
 
-def receive_udp_json(ip, port, duration, ch_names, hand, sampling_rate=250):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((ip, port))
-    sock.settimeout(1.0)
+# ======================
+# Settings
+# ======================
+serial_port = st.text_input(
+    "Serial Port",
+    "/dev/cu.usbserial-DP04W01L"
+)
 
-    data_list = []
-    start_time = time.time()
-    sample_interval = 1.0 / sampling_rate
+duration = st.number_input("Duration per class (sec)", 1, 30, 10)
+FS = 250
 
-    while time.time() - start_time < duration:
-        try:
-            data, _ = sock.recvfrom(32768)
-            msg = data.decode(errors="ignore").strip()
-            if not msg:
-                continue
-            try:
-                obj = json.loads(msg)
-            except json.JSONDecodeError:
-                continue
+channels = ["FC3","C3","CP3","Cz","FCz","FC4","C4","CP4"]
+session_name = st.text_input(
+    "Session name (file name)",
+    value="session_01"
+)
 
-            values = None
-            if isinstance(obj, dict):
-                if "data" in obj:
-                    values = obj["data"]
-                elif "rawEeg" in obj:
-                    values = obj["rawEeg"]
-                elif "eeg" in obj:
-                    values = obj["eeg"]
+SAVE_FILE = f"{session_name}.csv"
+# ======================
+# Visuals (صور فقط)
+# ======================
+right_img = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
+left_img  = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
+idle_img  = "https://img.icons8.com/win10/512/FFFFFF/plus.png"
 
-            if isinstance(values, list) and all(isinstance(v, list) for v in values):
-                base_time = datetime.now().timestamp()
-                for i, sample in enumerate(values):
-                    if len(sample) >= len(ch_names):
-                        ts = base_time + (i * sample_interval)
-                        ts_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S.%f")
-                        row = [ts_str, hand] + sample[:len(ch_names)]
-                        data_list.append(row)
-            elif isinstance(values, list) and len(values) >= len(ch_names):
-                ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-                row = [ts_str, hand] + values[:len(ch_names)]
-                data_list.append(row)
+visual = st.empty()
+status = st.empty()
 
-        except socket.timeout:
-            continue
+# ======================
+# Preprocessing
+# ======================
+def preprocess_like_gui(df):
+    out = df.copy()
+    for ch in channels:
+        x = out[ch].to_numpy(dtype=np.float64)
 
-    sock.close()
-    cols = ["timestamp", "hand"] + ch_names
-    return pd.DataFrame(data_list, columns=cols)
+        DataFilter.detrend(x, DetrendOperations.LINEAR.value)
+        DataFilter.remove_environmental_noise(x, FS, NoiseTypes.FIFTY.value)
+        DataFilter.perform_bandpass(
+            x, FS, 1.0, 40.0, 4,
+            FilterTypes.BUTTERWORTH.value, 0
+        )
+        out[ch] = x
+    return out
 
-if st.button("🎬 Start Recording"):
-    st.success(f"Recording for {duration} seconds ({hand} mode)...")
+# ======================
+# Recorder
+# ======================
+def record_blocking(duration, label, port):
+    BoardShim.disable_board_logger()
 
-    idle_gif = "https://img.icons8.com/win10/512/FFFFFF/plus.png"
-    open_gif = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
-    close_gif = "https://media.tenor.com/UtL_5N-UBVoAAAAM/hand-close.gif"
+    params = BrainFlowInputParams()
+    params.serial_port = port
 
-    if hand == "Idle":
-        hand_gif.image(idle_gif, caption="Idle - Focus on the +")
-        status_placeholder.info("Focus on the +")
-        time.sleep(duration)
-    else:
-        half = duration / 2
-        hand_gif.image(open_gif, caption=f"{hand} hand - OPEN")
-        status_placeholder.info("Hand Open - Keep it open!")
-        time.sleep(half)
-        hand_gif.image(close_gif, caption=f"{hand} hand - CLOSE")
-        status_placeholder.warning("Hand Close - Keep it closed!")
-        time.sleep(half)
+    board = BoardShim(BoardIds.CYTON_BOARD.value, params)
+    board.prepare_session()
+    board.start_stream(450000)
 
-    st.write(f"📡 Listening on {udp_ip}:{udp_port} ...")
+    start = time.time()
+    while time.time() - start < duration:
+        time.sleep(0.01)
 
-    df = receive_udp_json(udp_ip, udp_port, duration, channel_names, hand, sampling_rate)
+    data = board.get_board_data()
+    board.stop_stream()
+    board.release_session()
 
-    if df.empty:
-        st.error("❌ No JSON data received.")
-    else:
-        df.to_csv(save_path, mode='a', index=False, header=not pd.io.common.file_exists(save_path))
-        actual_rate = df.shape[0] / duration
-        st.success(f"Saved {df.shape[0]} samples to {save_path}")
-        st.info(f"Actual Sampling Rate ≈ {actual_rate:.2f} Hz")
-        st.dataframe(df.head(10))
+    eeg_ch = board.get_eeg_channels(BoardIds.CYTON_BOARD.value)
+    ts_ch  = board.get_timestamp_channel(BoardIds.CYTON_BOARD.value)
 
-st.markdown("---")
-st.caption("Developed by Aether ⚡")
+    cyton_map = {
+        "FC3": eeg_ch[0],
+        "C3":  eeg_ch[1],
+        "CP3": eeg_ch[2],
+        "Cz":  eeg_ch[3],
+        "FCz": eeg_ch[4],
+        "FC4": eeg_ch[5],
+        "C4":  eeg_ch[6],
+        "CP4": eeg_ch[7],
+    }
+
+    rows = []
+    for i in range(data.shape[1]):
+        row = {
+            "timestamp": datetime.fromtimestamp(data[ts_ch][i]),
+            "label": label
+        }
+        for name in channels:
+            row[name] = data[cyton_map[name]][i]
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+# ======================
+# Session Button
+# ======================
+if st.session_state.recording is False and pd.io.common.file_exists(SAVE_FILE):
+    st.warning(f"⚠️ File {SAVE_FILE} already exists. Choose a different session name.")
+
+if st.button("🚀 Start Session") and not st.session_state.recording:
+    st.session_state.recording = True
+
+    session_order = [
+        ("Right", right_img),
+        ("Left",  left_img),
+        ("Idle",  idle_img)
+    ]
+
+    for label, img in session_order:
+
+        # ⏸️ فاصل قبل التسجيل
+        status.info(f"Get ready for {label}")
+        visual.image(img, width=350)
+        time.sleep(3)
+
+        # 🎬 أثناء التسجيل (الصورة تظل ظاهرة)
+        status.warning(f"Recording {label}...")
+        visual.image(img, width=350)
+
+        df_raw = record_blocking(duration, label, serial_port)
+        df_clean = preprocess_like_gui(df_raw)
+
+        df_clean.to_csv(
+            SAVE_FILE,
+            index=False,
+            mode="a",
+            header=not pd.io.common.file_exists(SAVE_FILE)
+        )
+
+        status.success(f"{label} saved ({len(df_clean)} samples)")
+        time.sleep(3)
+
+    visual.empty()
+    status.success("✅ Session completed — all data saved in ONE file")
+    st.session_state.recording = False
