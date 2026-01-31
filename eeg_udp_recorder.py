@@ -126,7 +126,6 @@ class UDPReceiver(threading.Thread):
             if parsed is None:
                 self.recv_errors += 1
                 if self.recv_errors % 100 == 0:
-                    # print occasional warning to console
                     print(f"[WARN] UDP parse errors so far: {self.recv_errors}")
                 continue
             ts, sample_idx, channels = parsed
