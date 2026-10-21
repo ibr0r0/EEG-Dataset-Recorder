@@ -38,7 +38,7 @@ Where:
 
 Example from one session:
 
-![Sample EEG](../images/NiefLastSession.png)
+![Sample EEG](../images/NaifLastSession.png)
 
 One small look into Naif’s brain.
 

@@ -11,15 +11,12 @@ from brainflow.data_filter import (
     NoiseTypes
 )
 
-# Streamlit config
 st.set_page_config(page_title="EEG Recorder", page_icon="🧠")
 st.title("🧠 EEG Recorder – Session Mode")
 
-# Session State
 if "recording" not in st.session_state:
     st.session_state.recording = False
 
-# Settings
 serial_port = st.text_input(
     "Serial Port",
     "/dev/cu.usbserial-DP04W01L"
@@ -36,7 +33,6 @@ session_name = st.text_input(
 
 SAVE_FILE = f"{session_name}.csv"
 
-# Visuals 
 right_img = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
 left_img  = "https://media.tenor.com/mOZeQBMuRAIAAAAM/the-only-reallaz-hand.gif"
 idle_img  = "https://img.icons8.com/win10/512/FFFFFF/plus.png"
@@ -44,7 +40,6 @@ idle_img  = "https://img.icons8.com/win10/512/FFFFFF/plus.png"
 visual = st.empty()
 status = st.empty()
 
-# Preprocessing
 def preprocess_like_gui(df):
     out = df.copy()
     for ch in channels:
@@ -59,7 +54,6 @@ def preprocess_like_gui(df):
         out[ch] = x
     return out
 
-# Recorder
 def record_blocking(duration, label, port):
     BoardShim.disable_board_logger()
 
@@ -104,7 +98,6 @@ def record_blocking(duration, label, port):
 
     return pd.DataFrame(rows)
 
-# Session Button
 if st.session_state.recording is False and pd.io.common.file_exists(SAVE_FILE):
     st.warning(f"⚠️ File {SAVE_FILE} already exists. Choose a different session name.")
 

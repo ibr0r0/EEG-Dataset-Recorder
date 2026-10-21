@@ -45,13 +45,13 @@ base_name = f"{SUBJECT_ID}_{SESSION_ID}_{ts_str}"
 CSV_PATH = os.path.join(SAVE_DIR, base_name + ".csv")
 META_PATH = os.path.join(SAVE_DIR, base_name + "_metadata.json")
 
-
-class UDPReceiver(threading.Thread):
-    """
+"""
     Receives UDP packets from OpenBCI GUI.
     Tries to parse JSON first; if fails, falls back to CSV-like numeric split.
     Puts standardized tuples on a queue: (timestamp, sample_index, channels:list[float])
-    """
+"""
+
+class UDPReceiver(threading.Thread):
     def __init__(self, ip, port, ch_count, out_queue, stop_event):
         super().__init__(daemon=True)
         self.ip = ip
@@ -64,7 +64,6 @@ class UDPReceiver(threading.Thread):
 
     def bind_socket(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # increase buffer if needed
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
         self.sock.bind((self.ip, self.port))
         self.sock.settimeout(1.0)
@@ -72,7 +71,6 @@ class UDPReceiver(threading.Thread):
     def parse_packet(self, raw_bytes):
         s = raw_bytes.decode("utf-8", errors="ignore").strip()
 
-        # Try JSON
         try:
             obj = json.loads(s)
             sample_idx = obj.get("sample") or obj.get("sampleNumber") or obj.get("n")
@@ -138,9 +136,6 @@ class UDPReceiver(threading.Thread):
 
 
 class CSVWriter(threading.Thread):
-    """
-    Consumes samples from a queue and writes to CSV with current label + trial_id.
-    """
     def __init__(self, in_queue, stop_event, label_state_getter, csv_path, ch_count):
         super().__init__(daemon=True)
         self.in_queue = in_queue

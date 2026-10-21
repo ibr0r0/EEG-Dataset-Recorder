@@ -87,10 +87,8 @@ Use this value in the app:
 With the environment activated:
 
 ```bash
-streamlit run app.py
+streamlit run eeg_recorder.py
 ```
-
-(Replace `app.py` with your script name.)
 
 ---
 
