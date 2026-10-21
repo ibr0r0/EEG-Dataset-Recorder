@@ -7,7 +7,7 @@ It supports both direct data capture and UDP-based data streaming, producing tim
 
 ## Demo
 
-<video src="https://github.com/user-attachments/assets/bceea453-045a-4a84-9e2e-fc6a8c3cb640" width="600" autoplay loop muted playsinline></video>
+https://github.com/user-attachments/assets/bceea453-045a-4a84-9e2e-fc6a8c3cb640
 
 ---
 
